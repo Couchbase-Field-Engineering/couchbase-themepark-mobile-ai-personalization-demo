@@ -1,0 +1,13 @@
+apiVersion: v2
+name: parkchat-app
+description: >-
+  Couchbase ParkChat mobile demo on Kubernetes: Couchbase Server
+  (guest, trip planner and crew-member profiles from the nightly export), Sync
+  Gateway (Couchbase Lite replication for phones), the backend (FastAPI + the
+  parkchat-services MCP server, which registers itself with the Couchbase Agent
+  Operations Manager), the app in a browser, and a daily CronJob that drops a
+  new mock export.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords: [couchbase, couchbase-lite, sync-gateway, mcp, rag, chatbot, personalization]

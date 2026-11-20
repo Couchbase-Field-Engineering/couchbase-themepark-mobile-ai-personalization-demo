@@ -1,0 +1,49 @@
+{{- define "parkchat.labels" -}}
+app.kubernetes.io/part-of: parkchat-app
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+{{- end -}}
+
+{{- define "parkchat.selector" -}}
+app.kubernetes.io/part-of: parkchat-app
+app.kubernetes.io/component: {{ . }}
+{{- end -}}
+
+{{- define "parkchat.image" -}}
+{{- $reg := .root.Values.global.imageRegistry -}}
+{{- if $reg -}}{{ printf "%s/%s:%s" $reg .image.repository (toString .image.tag) }}{{- else -}}{{ printf "%s:%s" .image.repository (toString .image.tag) }}{{- end -}}
+{{- end -}}
+
+{{/* A secret value: the explicit value, else the one already stored, else random. */}}
+{{- define "parkchat.secretValue" -}}
+{{- $existing := lookup "v1" "Secret" .root.Release.Namespace "parkchat-app-secrets" -}}
+{{- if .value -}}{{ .value }}
+{{- else if and $existing (index $existing.data .key) -}}{{ index $existing.data .key | b64dec }}
+{{- else -}}{{ randAlphaNum 24 }}{{- end -}}
+{{- end -}}
+
+{{/* Init container: wait until couchbase-init has created the bucket, collections and indexes. */}}
+{{- define "parkchat.waitForCouchbase" -}}
+- name: wait-for-couchbase
+  image: {{ .Values.curlImage }}
+  env:
+    - name: CB_USERNAME
+      valueFrom: { secretKeyRef: { name: parkchat-app-secrets, key: COUCHBASE_USERNAME } }
+    - name: CB_PASSWORD
+      valueFrom: { secretKeyRef: { name: parkchat-app-secrets, key: COUCHBASE_PASSWORD } }
+  command:
+    - sh
+    - -c
+    - |
+      echo "Waiting for bucket {{ .Values.couchbase.bucket }} and its indexes ..."
+      # After a Couchbase restart the query service lists no indexes for a
+      # bucket until something queries it, so with nothing else running this
+      # count would stay at 0 forever. Query one of the demo's collections
+      # first (the result does not matter), then count this scope's indexes.
+      q() { curl -s -u "$CB_USERNAME:$CB_PASSWORD" http://couchbase:8093/query/service --data-urlencode "statement=$1"; }
+      until q "SELECT RAW 1 FROM \`{{ .Values.couchbase.bucket }}\`.\`{{ .Values.couchbase.scope }}\`.\`lookups\` LIMIT 1" >/dev/null 2>&1; \
+          q "SELECT RAW COUNT(*) FROM system:indexes WHERE bucket_id='{{ .Values.couchbase.bucket }}' AND scope_id='{{ .Values.couchbase.scope }}' AND state='online'" \
+          | tr -d ' \n' | grep -Eq '"results":\[(1[2-9]|[2-9][0-9])\]'; do sleep 5; done
+      echo "Couchbase is ready"
+{{- end -}}
